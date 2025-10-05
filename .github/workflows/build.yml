@@ -1,24 +1,34 @@
+# Workflow 的名称
 name: Build 1.21.x
 
+# 定义触发条件：当任何以 'v' 开头的标签被推送到仓库时
 on:
   push:
     tags:
       - 'v*'
 
+# 定义工作流中的任务
 jobs:
   main:
-
+    # 在最新的 Ubuntu 环境上运行
     runs-on: ubuntu-latest
+    # 设置任务超时时间为 20 分钟
     timeout-minutes: 20
 
+    # 定义任务中的步骤
     steps:
+    # 步骤 1: 拉取代码
     - name: Checkout
       uses: actions/checkout@v3
+
+    # 步骤 2: 设置 Java 环境
     - name: Set up JDK 21
       uses: actions/setup-java@v3
       with:
         java-version: '21'
         distribution: 'adopt'
+
+    # 步骤 3: 从 Git 标签中提取版本号
     - name: Get Version
       id: version
       uses: actions/github-script@v6
@@ -28,6 +38,8 @@ jobs:
         script: |
           let ref = '${{ github.ref }}';
           return ref.startsWith('refs/tags/v') ? ref.replace('refs/tags/v', '') : 'indev';
+
+    # 步骤 4: 根据版本号判断版本类型 (alpha, beta, release)
     - name: Get Version Type
       id: version_type
       uses: actions/github-script@v6
@@ -37,20 +49,41 @@ jobs:
         script: |
           let version = '${{ steps.version.outputs.result }}';
           return version.includes('alpha') ? 'alpha' : (version.includes('beta') ? 'beta' : 'release');
+
+    # 步骤 5: 在日志中打印版本信息，方便调试
     - name: Log Version Info
       env:
         VERSION: ${{ steps.version.outputs.result }}
         VERSION_TYPE: ${{ steps.version_type.outputs.result }}
       run: echo "version = $VERSION, type = $VERSION_TYPE"
+
+    # 步骤 6: 使用 Gradle 进行构建
     - name: Build
       uses: gradle/gradle-build-action@v2
       with:
         arguments: build
       env:
         VERSION: ${{ steps.version.outputs.result }}
+
+    # =========================================================
+    #  VVV 新增的步骤 VVV
+    #  此步骤用于将构建生成的 JAR 文件作为产物上传
+    # =========================================================
+    - name: Upload Jar Artifact
+      uses: actions/upload-artifact@v4 # 使用了更新的 v4 版本
+      with:
+        # 产物的名称，您可以在下载时看到这个名字
+        name: TerraFirmaCraft-1.21.x-jars
+        # 要上传的文件的路径。'build/libs/*.jar' 会匹配 build/libs 目录下的所有 .jar 文件
+        path: build/libs/*.jar
+        # 产物的保留天数（可选，默认为 90 天）
+        retention-days: 7 
+
+    # 步骤 8: 发布到 Modrinth, CurseForge 和 GitHub Releases
     - name: Publish
       id: publish
-      if: ${{ steps.version.outputs.result != 'alpha' && success() }}
+      # 执行条件：当版本不是 alpha 且前面的步骤都成功时才执行
+      if: ${{ steps.version_type.outputs.result != 'alpha' && success() }}
       uses: Kir-Antipov/mc-publish@v3.3
       with:
         modrinth-id: JaCEZUhg
@@ -70,5 +103,4 @@ jobs:
         java: 21
         loaders: |
           neoforge
-
         changelog-file: CHANGELOG.md
